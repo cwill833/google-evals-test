@@ -1,0 +1,536 @@
+{
+  "eval_case_results": [
+    {
+      "eval_case_index": 0,
+      "response_candidate_results": [
+        {
+          "response_index": 0,
+          "metric_results": {
+            "custom_response_quality": {
+              "metric_name": "custom_response_quality",
+              "score": 5.0,
+              "explanation": "The agent provided a friendly, helpful, and accurate overview of its capabilities in response to the user's greeting and open-ended question.",
+              "rubric_verdicts": null,
+              "raw_output": null,
+              "error_message": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "eval_case_index": 1,
+      "response_candidate_results": [
+        {
+          "response_index": 0,
+          "metric_results": {
+            "custom_response_quality": {
+              "metric_name": "custom_response_quality",
+              "score": 5.0,
+              "explanation": "The agent accurately utilized the weather tool to retrieve information for San Francisco and responded clearly and directly to the user's prompt.",
+              "rubric_verdicts": null,
+              "raw_output": null,
+              "error_message": null
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "summary_metrics": [
+    {
+      "metric_name": "custom_response_quality",
+      "num_cases_total": 2,
+      "num_cases_valid": 2,
+      "num_cases_error": 0,
+      "mean_score": 5.0,
+      "stdev_score": 0.0,
+      "pass_rate": null
+    }
+  ],
+  "win_rates": null,
+  "evaluation_dataset": [
+    {
+      "bigquery_source": null,
+      "gcs_source": null,
+      "eval_cases": [
+        {
+          "prompt": {
+            "parts": [
+              {
+                "media_resolution": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_call": null,
+                "function_response": null,
+                "inline_data": null,
+                "text": "Hello, what can you help me with?",
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null,
+                "tool_call": null,
+                "tool_response": null,
+                "part_metadata": null,
+                "audio_transcription": null
+              }
+            ],
+            "role": "user"
+          },
+          "responses": [
+            {
+              "response": {
+                "parts": [
+                  {
+                    "media_resolution": null,
+                    "code_execution_result": null,
+                    "executable_code": null,
+                    "file_data": null,
+                    "function_call": null,
+                    "function_response": null,
+                    "inline_data": null,
+                    "text": "Hello! I can help you with a wide variety of tasks, including:\n\n* **Answering questions** on science, history, technology, and more.\n* **Writing and editing** emails, essays, stories, resumes, and other documents.\n* **Coding and technical tasks**, like writing, debugging, or explaining code.\n* **Brainstorming and planning** for projects, trips, or creative ideas.\n* **Looking up real-time information** like the current time or weather in different cities.\n* **Summarizing, translating, or reformatting** text.\n\nHow can I assist you today?",
+                    "thought": null,
+                    "thought_signature": null,
+                    "video_metadata": null,
+                    "tool_call": null,
+                    "tool_response": null,
+                    "part_metadata": null,
+                    "audio_transcription": null
+                  }
+                ],
+                "role": "model"
+              }
+            }
+          ],
+          "reference": null,
+          "system_instruction": null,
+          "conversation_history": null,
+          "rubric_groups": null,
+          "eval_case_id": "greeting",
+          "intermediate_events": null,
+          "agent_info": null,
+          "agent_data": {
+            "agents": {
+              "root_agent": {
+                "agent_id": "root_agent",
+                "agent_type": "LlmAgent",
+                "description": "",
+                "instruction": "You are a helpful AI assistant designed to provide accurate and useful information.",
+                "tools": [
+                  {
+                    "retrieval": null,
+                    "computer_use": null,
+                    "file_search": null,
+                    "google_search": null,
+                    "google_maps": null,
+                    "code_execution": null,
+                    "enterprise_web_search": null,
+                    "function_declarations": [
+                      {
+                        "description": "Simulates a web search. Use it get information on weather.\n\nArgs:\n    query: A string containing the location to get weather information for.\n\nReturns:\n    A string with the simulated weather information for the queried location.",
+                        "name": "get_weather",
+                        "parameters": null,
+                        "parameters_json_schema": {
+                          "properties": {
+                            "query": {
+                              "title": "Query",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "query"
+                          ],
+                          "title": "get_weatherParams",
+                          "type": "object"
+                        },
+                        "response": null,
+                        "response_json_schema": {
+                          "type": "string"
+                        },
+                        "behavior": null
+                      }
+                    ],
+                    "google_search_retrieval": null,
+                    "parallel_ai_search": null,
+                    "url_context": null,
+                    "mcp_servers": null,
+                    "exa_ai_search": null
+                  },
+                  {
+                    "retrieval": null,
+                    "computer_use": null,
+                    "file_search": null,
+                    "google_search": null,
+                    "google_maps": null,
+                    "code_execution": null,
+                    "enterprise_web_search": null,
+                    "function_declarations": [
+                      {
+                        "description": "Simulates getting the current time for a city.\n\nArgs:\n    city: The name of the city to get the current time for.\n\nReturns:\n    A string with the current time information.",
+                        "name": "get_current_time",
+                        "parameters": null,
+                        "parameters_json_schema": {
+                          "properties": {
+                            "query": {
+                              "title": "Query",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "query"
+                          ],
+                          "title": "get_current_timeParams",
+                          "type": "object"
+                        },
+                        "response": null,
+                        "response_json_schema": {
+                          "type": "string"
+                        },
+                        "behavior": null
+                      }
+                    ],
+                    "google_search_retrieval": null,
+                    "parallel_ai_search": null,
+                    "url_context": null,
+                    "mcp_servers": null,
+                    "exa_ai_search": null
+                  }
+                ],
+                "sub_agents": []
+              }
+            },
+            "turns": [
+              {
+                "turn_index": 0,
+                "turn_id": "turn_0",
+                "events": [
+                  {
+                    "author": "root_agent",
+                    "content": {
+                      "parts": [
+                        {
+                          "media_resolution": null,
+                          "code_execution_result": null,
+                          "executable_code": null,
+                          "file_data": null,
+                          "function_call": null,
+                          "function_response": null,
+                          "inline_data": null,
+                          "text": "Hello! I can help you with a wide variety of tasks, including:\n\n* **Answering questions** on science, history, technology, and more.\n* **Writing and editing** emails, essays, stories, resumes, and other documents.\n* **Coding and technical tasks**, like writing, debugging, or explaining code.\n* **Brainstorming and planning** for projects, trips, or creative ideas.\n* **Looking up real-time information** like the current time or weather in different cities.\n* **Summarizing, translating, or reformatting** text.\n\nHow can I assist you today?",
+                          "thought": null,
+                          "thought_signature": null,
+                          "video_metadata": null,
+                          "tool_call": null,
+                          "tool_response": null,
+                          "part_metadata": null,
+                          "audio_transcription": null
+                        }
+                      ],
+                      "role": "model"
+                    },
+                    "event_time": null,
+                    "state_delta": null,
+                    "active_tools": null
+                  }
+                ]
+              }
+            ]
+          },
+          "user_scenario": null
+        },
+        {
+          "prompt": {
+            "parts": [
+              {
+                "media_resolution": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_call": null,
+                "function_response": null,
+                "inline_data": null,
+                "text": "What's the weather like in San Francisco?",
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null,
+                "tool_call": null,
+                "tool_response": null,
+                "part_metadata": null,
+                "audio_transcription": null
+              }
+            ],
+            "role": "user"
+          },
+          "responses": [
+            {
+              "response": {
+                "parts": [
+                  {
+                    "media_resolution": null,
+                    "code_execution_result": null,
+                    "executable_code": null,
+                    "file_data": null,
+                    "function_call": null,
+                    "function_response": null,
+                    "inline_data": null,
+                    "text": "The weather in San Francisco is currently 60\u00b0F and foggy.",
+                    "thought": null,
+                    "thought_signature": null,
+                    "video_metadata": null,
+                    "tool_call": null,
+                    "tool_response": null,
+                    "part_metadata": null,
+                    "audio_transcription": null
+                  }
+                ],
+                "role": "model"
+              }
+            }
+          ],
+          "reference": null,
+          "system_instruction": null,
+          "conversation_history": null,
+          "rubric_groups": null,
+          "eval_case_id": "weather_query",
+          "intermediate_events": null,
+          "agent_info": null,
+          "agent_data": {
+            "agents": {
+              "root_agent": {
+                "agent_id": "root_agent",
+                "agent_type": "LlmAgent",
+                "description": "",
+                "instruction": "You are a helpful AI assistant designed to provide accurate and useful information.",
+                "tools": [
+                  {
+                    "retrieval": null,
+                    "computer_use": null,
+                    "file_search": null,
+                    "google_search": null,
+                    "google_maps": null,
+                    "code_execution": null,
+                    "enterprise_web_search": null,
+                    "function_declarations": [
+                      {
+                        "description": "Simulates a web search. Use it get information on weather.\n\nArgs:\n    query: A string containing the location to get weather information for.\n\nReturns:\n    A string with the simulated weather information for the queried location.",
+                        "name": "get_weather",
+                        "parameters": null,
+                        "parameters_json_schema": {
+                          "properties": {
+                            "query": {
+                              "title": "Query",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "query"
+                          ],
+                          "title": "get_weatherParams",
+                          "type": "object"
+                        },
+                        "response": null,
+                        "response_json_schema": {
+                          "type": "string"
+                        },
+                        "behavior": null
+                      }
+                    ],
+                    "google_search_retrieval": null,
+                    "parallel_ai_search": null,
+                    "url_context": null,
+                    "mcp_servers": null,
+                    "exa_ai_search": null
+                  },
+                  {
+                    "retrieval": null,
+                    "computer_use": null,
+                    "file_search": null,
+                    "google_search": null,
+                    "google_maps": null,
+                    "code_execution": null,
+                    "enterprise_web_search": null,
+                    "function_declarations": [
+                      {
+                        "description": "Simulates getting the current time for a city.\n\nArgs:\n    city: The name of the city to get the current time for.\n\nReturns:\n    A string with the current time information.",
+                        "name": "get_current_time",
+                        "parameters": null,
+                        "parameters_json_schema": {
+                          "properties": {
+                            "query": {
+                              "title": "Query",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "query"
+                          ],
+                          "title": "get_current_timeParams",
+                          "type": "object"
+                        },
+                        "response": null,
+                        "response_json_schema": {
+                          "type": "string"
+                        },
+                        "behavior": null
+                      }
+                    ],
+                    "google_search_retrieval": null,
+                    "parallel_ai_search": null,
+                    "url_context": null,
+                    "mcp_servers": null,
+                    "exa_ai_search": null
+                  }
+                ],
+                "sub_agents": []
+              }
+            },
+            "turns": [
+              {
+                "turn_index": 0,
+                "turn_id": "turn_0",
+                "events": [
+                  {
+                    "author": "root_agent",
+                    "content": {
+                      "parts": [
+                        {
+                          "media_resolution": null,
+                          "code_execution_result": null,
+                          "executable_code": null,
+                          "file_data": null,
+                          "function_call": {
+                            "id": "call_701355",
+                            "args": {
+                              "query": "San Francisco"
+                            },
+                            "name": "get_weather",
+                            "partial_args": null,
+                            "will_continue": null
+                          },
+                          "function_response": null,
+                          "inline_data": null,
+                          "text": null,
+                          "thought": null,
+                          "thought_signature": null,
+                          "video_metadata": null,
+                          "tool_call": null,
+                          "tool_response": null,
+                          "part_metadata": null,
+                          "audio_transcription": null
+                        }
+                      ],
+                      "role": "model"
+                    },
+                    "event_time": null,
+                    "state_delta": null,
+                    "active_tools": null
+                  },
+                  {
+                    "author": "root_agent",
+                    "content": {
+                      "parts": [
+                        {
+                          "media_resolution": null,
+                          "code_execution_result": null,
+                          "executable_code": null,
+                          "file_data": null,
+                          "function_call": null,
+                          "function_response": {
+                            "will_continue": null,
+                            "scheduling": null,
+                            "parts": null,
+                            "id": "call_701355",
+                            "name": "get_weather",
+                            "response": {
+                              "result": "It's 60 degrees and foggy."
+                            }
+                          },
+                          "inline_data": null,
+                          "text": null,
+                          "thought": null,
+                          "thought_signature": null,
+                          "video_metadata": null,
+                          "tool_call": null,
+                          "tool_response": null,
+                          "part_metadata": null,
+                          "audio_transcription": null
+                        }
+                      ],
+                      "role": "user"
+                    },
+                    "event_time": null,
+                    "state_delta": null,
+                    "active_tools": null
+                  },
+                  {
+                    "author": "root_agent",
+                    "content": {
+                      "parts": [
+                        {
+                          "media_resolution": null,
+                          "code_execution_result": null,
+                          "executable_code": null,
+                          "file_data": null,
+                          "function_call": null,
+                          "function_response": null,
+                          "inline_data": null,
+                          "text": "The weather in San Francisco is currently 60\u00b0F and foggy.",
+                          "thought": null,
+                          "thought_signature": null,
+                          "video_metadata": null,
+                          "tool_call": null,
+                          "tool_response": null,
+                          "part_metadata": null,
+                          "audio_transcription": null
+                        }
+                      ],
+                      "role": "model"
+                    },
+                    "event_time": null,
+                    "state_delta": null,
+                    "active_tools": null
+                  }
+                ]
+              }
+            ]
+          },
+          "user_scenario": null
+        }
+      ],
+      "eval_dataset_df": null,
+      "candidate_name": null
+    }
+  ],
+  "metadata": {
+    "candidate_names": [
+      "candidate_1"
+    ],
+    "dataset_name": null,
+    "dataset_id": null,
+    "creation_timestamp": "2026-08-16T15:23:15.785120Z",
+    "dataset": [
+      {
+        "prompt_display_text": "Hello, what can you help me with?",
+        "prompt_raw_json": "{\n  \"parts\": [\n    {\n      \"text\": \"Hello, what can you help me with?\"\n    }\n  ],\n  \"role\": \"user\"\n}",
+        "reference": "",
+        "reference_raw_json": "",
+        "response_display_text": "Hello! I can help you with a wide variety of tasks, including:\n\n* **Answering questions** on science, history, technology, and more.\n* **Writing and editing** emails, essays, stories, resumes, and other documents.\n* **Coding and technical tasks**, like writing, debugging, or explaining code.\n* **Brainstorming and planning** for projects, trips, or creative ideas.\n* **Looking up real-time information** like the current time or weather in different cities.\n* **Summarizing, translating, or reformatting** text.\n\nHow can I assist you today?",
+        "response_raw_json": "{\n  \"parts\": [\n    {\n      \"text\": \"Hello! I can help you with a wide variety of tasks, including:\\n\\n* **Answering questions** on science, history, technology, and more.\\n* **Writing and editing** emails, essays, stories, resumes, and other documents.\\n* **Coding and technical tasks**, like writing, debugging, or explaining code.\\n* **Brainstorming and planning** for projects, trips, or creative ideas.\\n* **Looking up real-time information** like the current time or weather in different cities.\\n* **Summarizing, translating, or reformatting** text.\\n\\nHow can I assist you today?\"\n    }\n  ],\n  \"role\": \"model\"\n}",
+        "intermediate_events": null,
+        "agent_data": "{\"agents\": {\"root_agent\": {\"agent_id\": \"root_agent\", \"agent_type\": \"LlmAgent\", \"description\": \"\", \"instruction\": \"You are a helpful AI assistant designed to provide accurate and useful information.\", \"tools\": [{\"function_declarations\": [{\"description\": \"Simulates a web search. Use it get information on weather.\\n\\nArgs:\\n    query: A string containing the location to get weather information for.\\n\\nReturns:\\n    A string with the simulated weather information for the queried location.\", \"name\": \"get_weather\", \"parameters_json_schema\": {\"properties\": {\"query\": {\"title\": \"Query\", \"type\": \"string\"}}, \"required\": [\"query\"], \"title\": \"get_weatherParams\", \"type\": \"object\"}, \"response_json_schema\": {\"type\": \"string\"}}]}, {\"function_declarations\": [{\"description\": \"Simulates getting the current time for a city.\\n\\nArgs:\\n    city: The name of the city to get the current time for.\\n\\nReturns:\\n    A string with the current time information.\", \"name\": \"get_current_time\", \"parameters_json_schema\": {\"properties\": {\"query\": {\"title\": \"Query\", \"type\": \"string\"}}, \"required\": [\"query\"], \"title\": \"get_current_timeParams\", \"type\": \"object\"}, \"response_json_schema\": {\"type\": \"string\"}}]}], \"sub_agents\": []}}, \"turns\": [{\"turn_index\": 0, \"turn_id\": \"turn_0\", \"events\": [{\"author\": \"root_agent\", \"content\": {\"parts\": [{\"text\": \"Hello! I can help you with a wide variety of tasks, including:\\n\\n* **Answering questions** on science, history, technology, and more.\\n* **Writing and editing** emails, essays, stories, resumes, and other documents.\\n* **Coding and technical tasks**, like writing, debugging, or explaining code.\\n* **Brainstorming and planning** for projects, trips, or creative ideas.\\n* **Looking up real-time information** like the current time or weather in different cities.\\n* **Summarizing, translating, or reformatting** text.\\n\\nHow can I assist you today?\"}], \"role\": \"model\"}}]}]}"
+      },
+      {
+        "prompt_display_text": "What's the weather like in San Francisco?",
+        "prompt_raw_json": "{\n  \"parts\": [\n    {\n      \"text\": \"What's the weather like in San Francisco?\"\n    }\n  ],\n  \"role\": \"user\"\n}",
+        "reference": "",
+        "reference_raw_json": "",
+        "response_display_text": "The weather in San Francisco is currently 60\u00b0F and foggy.",
+        "response_raw_json": "{\n  \"parts\": [\n    {\n      \"text\": \"The weather in San Francisco is currently 60\u00b0F and foggy.\"\n    }\n  ],\n  \"role\": \"model\"\n}",
+        "intermediate_events": null,
+        "agent_data": "{\"agents\": {\"root_agent\": {\"agent_id\": \"root_agent\", \"agent_type\": \"LlmAgent\", \"description\": \"\", \"instruction\": \"You are a helpful AI assistant designed to provide accurate and useful information.\", \"tools\": [{\"function_declarations\": [{\"description\": \"Simulates a web search. Use it get information on weather.\\n\\nArgs:\\n    query: A string containing the location to get weather information for.\\n\\nReturns:\\n    A string with the simulated weather information for the queried location.\", \"name\": \"get_weather\", \"parameters_json_schema\": {\"properties\": {\"query\": {\"title\": \"Query\", \"type\": \"string\"}}, \"required\": [\"query\"], \"title\": \"get_weatherParams\", \"type\": \"object\"}, \"response_json_schema\": {\"type\": \"string\"}}]}, {\"function_declarations\": [{\"description\": \"Simulates getting the current time for a city.\\n\\nArgs:\\n    city: The name of the city to get the current time for.\\n\\nReturns:\\n    A string with the current time information.\", \"name\": \"get_current_time\", \"parameters_json_schema\": {\"properties\": {\"query\": {\"title\": \"Query\", \"type\": \"string\"}}, \"required\": [\"query\"], \"title\": \"get_current_timeParams\", \"type\": \"object\"}, \"response_json_schema\": {\"type\": \"string\"}}]}], \"sub_agents\": []}}, \"turns\": [{\"turn_index\": 0, \"turn_id\": \"turn_0\", \"events\": [{\"author\": \"root_agent\", \"content\": {\"parts\": [{\"function_call\": {\"id\": \"call_701355\", \"args\": {\"query\": \"San Francisco\"}, \"name\": \"get_weather\"}}], \"role\": \"model\"}}, {\"author\": \"root_agent\", \"content\": {\"parts\": [{\"function_response\": {\"id\": \"call_701355\", \"name\": \"get_weather\", \"response\": {\"result\": \"It's 60 degrees and foggy.\"}}}], \"role\": \"user\"}}, {\"author\": \"root_agent\", \"content\": {\"parts\": [{\"text\": \"The weather in San Francisco is currently 60\u00b0F and foggy.\"}], \"role\": \"model\"}}]}]}"
+      }
+    ]
+  },
+  "agent_info": null
+}

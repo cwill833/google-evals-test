@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    participant Dev as Developer
+    participant GH as GitHub (main)
+    participant ADO as Azure DevOps Pipeline
+    participant PT as agents-cli eval (generate+grade)
+    participant VJ as Vertex Eval Service (optional)
+    participant GCS as GCS (raw/ + results/)
+
+    Dev->>GH: Merge PR (agent code and/or eval sets)
+    GH->>ADO: CI trigger via GitHub App connection<br/>(path filter: agents/my_agent/**)
+    ADO->>ADO: Checkout @ SHA, install pinned agents-cli + google-adk 2.x
+    ADO->>PT: eval generate → eval grade per tier
+    loop each tests/eval/datasets/{fast-*,judged-*}.json
+        PT->>PT: generate responses, grade vs eval_config metrics
+        opt judged-* datasets (judge metrics in eval_config.judged.yaml)
+            PT->>VJ: judge calls (ADC / GCP creds)
+            VJ-->>PT: scores + rationale
+        end
+        PT->>PT: gate: grade exit/threshold (spike) or pytest assertion fallback
+    end
+    PT-->>ADO: grade_results/ + JUnit XML (one result per dataset)
+    ADO->>ADO: PublishTestResults@2 → Tests tab
+    ADO->>GCS: write results/{agent}/{SHA}/{run}/... (scores, invocations: responses/tool calls, tokens, rationale)
+    ADO->>ADO: (same pipeline) build Runner Service image tagged @ SHA
+    ADO-->>Dev: Pass/fail + per-dataset results in ADO UI

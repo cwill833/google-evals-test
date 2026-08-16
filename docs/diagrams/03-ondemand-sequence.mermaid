@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    participant U as User (internal UI)
+    participant API as Eval Runner Service (Cloud Run)
+    participant GH as GitHub Contents API
+    participant W as Async Worker (Cloud Tasks)
+    participant ENG as agents-cli / ADK eval engine
+    participant VJ as Vertex Eval Service (optional)
+    participant GCS as GCS (results/ prefix)
+
+    U->>API: GET /agents/my_agent/instructions
+    API->>GH: fetch app/agent.py @ main
+    GH-->>API: file + SHA
+    API-->>U: read-only instructions view
+
+    U->>API: GET /agents/my_agent/evalsets
+    API->>GH: list agents/my_agent/tests/eval/datasets/ @ main
+    GH-->>API: fast-*[smoke, regression], judged-*[quality, multiturn] + SHA
+    API-->>U: eval sets + current SHA
+
+    U->>API: POST /agents/my_agent/runs {tier: fast|judged|all}
+    API->>API: verify service image SHA == main SHA<br/>(agent code must match eval sets)
+    API->>GH: download evalset JSONs + test_config @ SHA
+    API->>W: enqueue run (run_id, SHA, sets)
+    API-->>U: 202 {run_id}
+
+    loop each eval set
+        W->>ENG: agents-cli eval generate + grade (dataset, tier config)
+        opt LLM-judged criteria
+            ENG->>VJ: judge calls (Cloud Run service identity)
+            VJ-->>ENG: scores + rationale
+        end
+        ENG-->>W: per-case metrics
+        W->>GCS: write cases/{case}.json {metrics, expected/actual responses + tool calls, tokens, rationale} + trace.json
+    end
+    W->>GCS: finalize run.json status
+
+    U->>API: GET /runs/{run_id} (poll or SSE)
+    API->>GCS: read run + results
+    GCS-->>API: scores, responses, tool calls, token totals, rationales
+    API-->>U: render results (comparable with CI runs — same store, same schema)

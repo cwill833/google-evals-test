@@ -1,0 +1,34 @@
+flowchart TB
+    subgraph L["FLOW 1 — LOCAL (developer)"]
+        direction TB
+        L1["Edit agent / datasets<br/><i>app/agent.py, tests/eval/datasets/*.json</i>"]
+        L2["Try it interactively<br/><b>agents-cli playground</b><br/>(or one-shot: <b>agents-cli run &quot;prompt&quot;</b>)"]
+        L3["Run agent over datasets<br/><b>agents-cli eval generate</b>"]
+        L4["Score the responses<br/><b>agents-cli eval grade</b><br/>(judged tier needs: <b>gcloud auth application-default login</b>)"]
+        L5["Inspect failures / diff vs last run<br/><b>agents-cli eval analyze</b> / <b>agents-cli eval compare</b>"]
+        L6["Commit + PR to GitHub"]
+        L1 --> L2 --> L3 --> L4 --> L5 --> L6
+    end
+
+    subgraph C["FLOW 2 — CI (merge to main → Azure DevOps)"]
+        direction TB
+        C1["Merge PR to main<br/>(GitHub App connection; path filter agents/&lt;agent&gt;/**)"]
+        C2["Pipeline setup<br/><b>pip install agents-cli==X google-adk==2.6.3</b> (pinned)"]
+        C3["Generate responses per tier<br/><b>agents-cli eval generate</b>"]
+        C4["Grade per tier<br/><b>agents-cli eval grade</b><br/>fast-* blocks · judged-* report-only"]
+        C5["Gate: grade threshold/exit (spike)<br/>fallback: <b>pytest</b> + AgentEvaluator assertion"]
+        C6["Publish results<br/>ADO artifacts + <b>gsutil cp artifacts/grade_results/ gs://.../results/&lt;agent&gt;/&lt;sha&gt;/&lt;run&gt;/</b>"]
+        C7["Build Runner Service image tagged @ SHA"]
+        C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7
+    end
+
+    subgraph U["FLOW 3 — UI (on-demand run)"]
+        direction TB
+        U1["User picks agent + tier in UI<br/>UI calls <b>POST /agents/{agent}/runs</b>"]
+        U2["Runner Service pulls truth from GitHub<br/><b>GET /repos/{org}/{repo}/contents/.../tests/eval/datasets @ main</b>"]
+        U3["Worker generates responses<br/><b>agents-cli eval generate</b><br/>(agent code baked into image @ same SHA)"]
+        U4["Worker grades<br/><b>agents-cli eval grade</b><br/>(Cloud Run service identity → Vertex judge)"]
+        U5["Write results to GCS<br/>manifest + grade_results → <b>gs://.../results/&lt;agent&gt;/&lt;sha&gt;/&lt;run&gt;/</b>"]
+        U6["UI polls <b>GET /runs/{run_id}</b><br/>renders scores, rationale, Cloud Trace link"]
+        U1 --> U2 --> U3 --> U4 --> U5 --> U6
+    end

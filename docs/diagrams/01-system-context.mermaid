@@ -1,0 +1,50 @@
+flowchart TB
+    subgraph SOT["GitHub repo (source of truth @ main)"]
+        CODE["agents/&lt;agent&gt;/ code"]
+        SETS["tests/eval/datasets/*.json (many per agent)"]
+        CFG["eval_config.yaml (fast + judged metric configs)"]
+    end
+
+    subgraph LOCAL["Surface 1: Local dev loop"]
+        CLI["agents-cli: playground / run / eval generate+grade / compare"]
+        WEB["dataset authoring: playground sessions / eval dataset synthesize"]
+    end
+
+    subgraph CI["Surface 2: Azure DevOps (merge to main)"]
+        TRIG["CI trigger + per-agent path filter"]
+        PYT["agents-cli eval generate+grade per tier (pytest fallback gate)"]
+        JUNIT["JUnit XML → ADO Tests tab"]
+    end
+
+    subgraph OND["Surface 3: On-demand"]
+        UI["Internal Eval UI (scope: run evals / view instructions from GitHub / view run history from GCS)"]
+        SVC["Eval Runner Service (FastAPI / Cloud Run, image built @ same SHA)"]
+    end
+
+    subgraph GCP["Google Cloud"]
+        ENGINE["ADK Eval Engine (fast tier: trajectory + response_match)"]
+        JUDGE["Vertex AI Gen AI Eval Service (judged tier: rubric / semantic / hallucination / safety)"]
+        GCS[("GCS: grade_results artifacts + run manifests/rollups + content logs (provisioned by agents-cli infra)")]
+        BQ["BigQuery external tables over results/ (trends, zero ETL)"]
+    end
+
+    WEB -- "commit sets via PR" --> SETS
+    SETS --> CLI
+    CODE --> CLI
+    SOT -- "push to main" --> TRIG
+    TRIG --> PYT
+    PYT --> JUNIT
+    UI --> SVC
+    SVC -- "GitHub Contents API (read @ main SHA)" --> SETS
+    CLI --> ENGINE
+    PYT --> ENGINE
+    SVC --> ENGINE
+    CT["Cloud Trace (native --otel_to_cloud): call_llm/execute_tool spans, prompts, responses, tokens"]
+    ENGINE -- "built-in OTel export" --> CT
+    CT -. "deep links by trace_id" .-> UI
+    ENGINE -. "judged tier only (eval/judged/ config; all 3 surfaces)" .-> JUDGE
+    CLI -- "--eval_storage_uri (local runs archived too)" --> GCS
+    PYT -- "scores, invocations, tokens (ci)" --> GCS
+    SVC -- "scores, invocations, tokens, rationale (on_demand)" --> GCS
+    GCS --> BQ
+    GCS --> UI
