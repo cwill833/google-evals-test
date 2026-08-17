@@ -58,6 +58,12 @@ gate exit 1 (baselines: healthy 5.0 / corrupted 3.67); lint rejects a golden-tie
 reference; a missing-case fixture and a missing-metric fixture both fail the gate.
 
 ### Phase 1 — Authoritative CI gate (GitHub Actions → GCP)
+**Stage policy (rev 4.1):** PR checks = dataset lint + gate unit tests (credential-free) + the
+`fast-` tier (cheap, blocks MERGE via branch protection). Merge-to-main workflow = the FULL
+configured suite (fast + safety + judged + golden), completeness-checked, blocking DEPLOY.
+Starting thresholds (baseline-derived, in the profile YAMLs): fast/safety = all-pass binary;
+golden `min_mean 0.8 / min_case 0.6`; judged `min_mean 3.5 / min_case 2.5` report-only →
+promoted on baseline evidence. Include fixed canary cases per judged profile.
 Build: WIF setup (`google-github-actions/auth`); workflow that: checks out the exact SHA → pinned
 installs → runs the agent FROM SOURCE per tier (`generate` local path; `memory://` sessions) →
 `grade --config <tier>` → completeness-checked gate (fast + controlled safety block; judged
