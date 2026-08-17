@@ -102,7 +102,25 @@ turns a subtle data bug into a lint error at PR time.
 - **Conformance/replay regression:** `adk conformance` record/replay is a separate lane
   (`tests/conformance/`) — deterministic replay, complements rather than joins the tier system.
 
-## 6. CI ordering & cost control
+## 6. Judging paradigms — which we use where
+
+- **Pointwise (absolute score vs fixed bar) — the v1 gate.** A merge gate requires a fixed bar, and
+  only absolute scores provide one; `min_mean`/`min_case` thresholds are pointwise machinery. Known
+  noise in absolute judge scores is mitigated by: generous initial thresholds (block regressions, not
+  variance), persisted per-case rationale, and trend tracking by SHA.
+- **Rubric-based — how pointwise stays trustworthy.** The `safety-` tier judge is rubric pass/fail
+  (refusal criteria), which is far less noisy than a 1–5. Google's adaptive/per-prompt rubrics have
+  live schema hooks we validated: `EvalCase.rubric_groups` (per-prompt criteria) and
+  `rubric_verdicts` in results (present in the fixture, null today). They adopt with zero structural
+  change when the backend enables the rubric premades (registry watch detects).
+- **Pairwise (A vs B) — deliberately NOT in the v1 gate; the Phase-4 endgame.** Schema already
+  supports it (`responses[]` is a candidate list, `win_rates` + `candidate_names` in results). Two
+  designated uses: (1) forced model migrations — "which model answers our cases better" is an A/B
+  decision, pairwise's strength; (2) **baseline-relative gating** — judge compares each new response
+  against the last main run's response per case, gate on win-rate: pairwise reliability aimed at
+  pointwise's noise, once baselines exist to compare against.
+
+## 7. CI ordering & cost control
 
 Run tiers cheapest-first, fail fast: `fast` → `judged` → `golden`/`grounded`/`safety` → `multiturn`.
 Per-tier `--concurrency` on generate bounds parallel judge/model pressure. The judged tiers run only
