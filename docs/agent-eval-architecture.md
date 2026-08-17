@@ -1,7 +1,7 @@
 # Agent Evaluation Platform — Architecture & Design
 
 **Status:** Draft for review
-**Scope (rev 3):** Evaluation **plus deployment to Vertex AI Agent Platform** (Gemini Enterprise Agent Platform — the managed Agent Runtime, formerly Agent Engine). Agents deploy there day one; evals run against the platform's APIs day one. Production *traffic* serving/monitoring remains a later phase.
+**Scope (rev 4):** Evaluation **plus deployment to Vertex AI Agent Platform** (Gemini Enterprise Agent Platform — the managed Agent Runtime, formerly Agent Engine). **Production sequence: local dev → CI evaluates the exact source SHA → gate → deploy only on pass → Apex Backoffice evaluates the deployed revision on demand.** Production *traffic* serving/monitoring remains a later phase.
 **Stack decision (rev 3):** Google **agents-cli** layered on **ADK 2.x** as the toolchain; **Agent Platform as the runtime and eval surface** (project `repp-501700`); model access **Vertex-only** (`GOOGLE_GENAI_USE_VERTEXAI=true` — the scaffold default; no AI Studio keys anywhere); eval datasets versioned in GitHub; pipelines in Azure DevOps; observability via Cloud Trace (default-on) + Agent Platform console dashboards + BigQuery Agent Analytics.
 
 > **Revision notes:** rev 1 = ADK-level tools directly (`adk eval`, `AgentEvaluator`) — still the escape hatch. Rev 2 adopted agents-cli as the interface. **Rev 3 (2026-08-16, owner decision): Agent Platform is the deployment target and eval API from day one** — this was previously §12's "future simplifier"; it is now the present. Key consequence: eval *scoring* already hit the Agent Platform eval API (grade → Vertex Gen AI Eval Service, build-spec E2); what rev 3 moves onto the platform is agent *inference/hosting*. The former G2 (multi-agent Runner image deps) and G3 (image↔main drift window) problems dissolve — the deployed revision is the thing under test.
@@ -15,6 +15,23 @@
 > Path A (`eval submit`/`results`) is non-functional in 1.3.1: sparse-reference datasets crash the SDK
 > (G6 live), and with references fixed the backend returns `404 Method not found` (API not rolled out).
 > Shelved; re-test on future releases. Details: build-spec §2a L6/L7.
+>
+> **REV 4 (2026-08-17, external review adopted — supersedes rev 3's sequence):** the production
+> sequence is **eval-then-deploy, not deploy-then-eval**: CI checks out the exact Git SHA, runs the
+> agent *from source* in the CI job (the §12-validated local-execution path), evaluates the complete
+> configured suite, and **deploys only on gate pass**. The on-demand surface is **Apex Backoffice**,
+> which evaluates the *deployed runtime revision* via `generate --url <runtime>/api` (the rev-3 spike
+> result — now the Apex mechanism, not the CI mechanism). Invariant reworded: **"One versioned
+> evaluation suite and one grading contract across every surface."** Surfaces evaluate different
+> targets (laptop → local agent; CI → source @ SHA pre-deploy; Apex → deployed revision) and every
+> run records full lineage (source SHA, runtime identity, dataset/config hashes, model/toolchain/
+> judge/metric versions, trigger, requester, run ID). **Results are comparable when source, dataset,
+> configuration, models, metrics, and execution target match** — never claim automatic comparability
+> across targets. Judged tier softened: participates day one, promoted to blocking on baseline
+> stability evidence. New stretch goal: authoring supported eval cases in Apex → GitHub PR under
+> CODEOWNERS. Security constraint: the credential-bearing Runner never executes arbitrary repo
+> Python — Apex runs may initially execute cloud-supported metrics only, reporting local custom
+> metrics as "not run" and the run as **partial**; CI remains the authoritative complete-suite gate.
 
 ---
 
@@ -50,9 +67,10 @@ Key invariants to architect around:
 - An internal UI can trigger a full eval run for any agent on demand, pulling the current eval sets from GitHub and running them via Google's eval tooling.
 - Results (per-run, per-set, per-case scores) are persisted and queryable over time.
 
-**Goals (added in rev 3)**
-- Agents deploy to Vertex AI Agent Platform (Agent Runtime) — the same runtime evals target and production will use.
-- CI runs evals against the *deployed* agent revision via Agent Platform APIs, not a locally-hosted copy.
+**Goals (rev 3/4)**
+- Agents deploy to Vertex AI Agent Platform (Agent Runtime) — the same runtime production will use.
+- **CI evaluates the exact source SHA before deployment and deploys only on gate pass** (rev 4).
+- **Apex Backoffice evaluates the deployed runtime revision on demand** and shows run history.
 
 **Non-Goals (this phase)**
 - Serving production *traffic* / online evals / production monitoring (the eval deployments are real deployments, but nothing routes users to them yet).
@@ -106,16 +124,42 @@ agents-cli eval grade        # score responses against eval_config metrics
 - `agents-cli eval compare` diffs runs (regression checks between two changes); `eval analyze` inspects failures; `eval metric list` shows available metrics.
 - **ALL grading locally requires GCP ADC** (`gcloud auth application-default login`) — not just the judged tier. Verified twice (build-spec E3 + re-confirmed on macOS 2026-08-15): `eval grade` hard-requires credentials at Vertex client init even when every metric is a local custom function. Day-one dev onboarding = ADC + a low-quota project. The only credential-free deterministic path is ADK-level `adk eval` fast metrics (docs explicitly state trajectory/ROUGE run locally without credentials — confirm with a 30-second run in Phase 0).
 
-### 4.2 CI — merge to main (Azure DevOps, code in GitHub) — rev 3 shape
-- Trigger/connection unchanged: GitHub App service connection, CI on `main`, per-agent path filters.
-- **Step 1 — deploy the merged agent to Agent Platform** (`agents-cli deploy`, target `agent_runtime`, staging/eval instance per agent, revision recorded with the git SHA in the run manifest).
-- **Step 2 — run evals against the deployed revision** via the winning path from the rev-3 blocking spike: `eval submit --resource-name … --dest gs://…` + `eval results` (path A) or `eval generate --url … ` + `eval grade` (path B). Either way results land locally/in GCS — publish as pipeline artifacts and post rollups to GCS.
-- **Gate mechanism — RESOLVED (2026-08-15, two independent checks)**: `eval grade` never exits non-zero on low scores (verified in 1.3.1 source — only operational `ClickException`s exit 1), and Google's own scaffolded CI/CD templates contain **no eval gating at all** (PR checks run pytest unit/integration; staging runs Locust — `eval grade` appears in none of their workflows). There is no first-party mechanism to mirror: **`tools/eval_gate.py` (build-spec §6) is the gate**, not a fallback. The rev-1 pytest wrapper remains available as an escape hatch only.
-- Fast tier blocks; judged tier report-only initially (unchanged policy, see §8).
-- The pipeline no longer bakes agent code into a Runner image — the deployed Agent Platform revision *is* the agent under test. The Runner Service (if retained, §4.3) is a thin orchestrator image, built rarely, not per-merge.
+### 4.2 CI — the authoritative evaluation gate (rev 4 shape)
+CI evaluates the **exact checked-out source SHA, before any deployment**, running the agent from
+source inside the CI job (local `adk api_server`/`generate` — the build-spec §12-validated path).
+The authoritative order:
 
-### 4.3 On-demand — internal UI
-Three-part design; the browser never runs evals itself.
+```
+checkout exact SHA → install agent + pinned toolchain → generate EVERY expected case
+→ verify generated case IDs match the authored set → grade EVERY selected metric
+→ verify every selected metric executed
+→ gate: fail on low score | errored case | missing case | missing metric
+   (infrastructure errors reported DISTINCT from quality failures)
+→ publish raw + normalized results → agents-cli deploy — ONLY on pass
+→ branch protection / pipeline gating makes the gate binding
+```
+
+- Per-agent path filters; pinned installs; results to GCS with full lineage.
+- CI runs the **complete configured suite** — it is the authoritative quality gate; Apex runs may be
+  partial (see §4.3), CI runs never are.
+- Custom `custom_function` metrics execute here safely — CI already runs repo code by definition.
+  The credential-bearing Runner does NOT get that privilege (§4.3).
+- **Gate mechanism — RESOLVED (2026-08-15, two independent checks)**: `eval grade` never exits non-zero on low scores (verified in 1.3.1 source — only operational `ClickException`s exit 1), and Google's own scaffolded CI/CD templates contain **no eval gating at all** (PR checks run pytest unit/integration; staging runs Locust — `eval grade` appears in none of their workflows). There is no first-party mechanism to mirror: **`tools/eval_gate.py` (build-spec §6) is the gate**, not a fallback. The rev-1 pytest wrapper remains available as an escape hatch only.
+- Gating posture (rev 4): `fast-` and controlled `safety-` rubric checks block immediately; `judged-`
+  participates from day one and is **promoted to blocking after baseline stability evidence**
+  (conservative thresholds, fixed canaries, pinned judge versions, documented rollback policy);
+  `golden-` blocks when stable.
+- The pipeline still never bakes agent code into a Runner image — the Runner (§4.3) is a thin
+  orchestrator that evaluates *deployed* revisions; CI evaluates *source* in its own job sandbox.
+
+### 4.3 On-demand — Apex Backoffice
+Three-part design; the browser never runs evals itself. **Apex evaluates the *deployed runtime
+revision*** (via `generate --url <runtime>/api`, the rev-3 spike result): it resolves the deployed
+revision → resolves that deployment's source SHA → loads datasets + grading configs **from that exact
+SHA (never mixed with `main`)** → runs → shows current results and history. **Security constraint
+(rev 4): the credential-bearing Runner never executes arbitrary repository Python** — initially Apex
+runs cloud-supported metrics only and reports repo-local custom metrics as **"not run"**, marking the
+run **partial**. CI remains the authoritative complete-suite gate.
 
 1. **UI (thin web app) — locked scope, three capabilities only:**
    - **Run evals per agent**: pick agent → pick tier/datasets (listed live from GitHub@main) → run → watch status.
@@ -321,7 +365,7 @@ See diagram `04-flows-with-commands.mermaid` for the visual version of all three
 ## 15. Open Decisions
 
 0. ~~(rev 3, blocking) Eval execution path against deployed agents~~ ✅ **DECIDED 2026-08-16: `generate --url <runtime>/api`** (spike result — see revision notes). Still open from this item: staging-instance shape (one standing scale-to-zero eval deployment per agent vs deploy-per-run — cost vs isolation; the spike used scale-to-zero `--min-instances 0`, which looks right for eval instances).
-1. ~~Judged tier in CI~~ ✅ **DECIDED (owner, 2026-08-16): BLOCKING from day one.** (Recommendation was report-only; owner chose stricter.) Mitigation for judge noise: set initial judged thresholds with generous margin below observed baselines — block egregious regressions, not variance — and re-tighten after a month of data. Baseline data point: healthy scaffold run scored 5.0, corrupted-reference run 3.67.
+1. ~~Judged tier in CI~~ **REVISED (rev 4, 2026-08-17 — supersedes the 08-16 blocking-day-one call):** judged quality **participates from day one and is promoted to blocking after baseline stability evidence** establishes an acceptable false-block rate. Requirements while promoting: conservative thresholds, fixed canary cases, pinned judge/metric versions where available, infrastructure-error separation, documented rollback/temporary-disable policy. Baseline data point: healthy scaffold run 5.0, corrupted-reference run 3.67. (`fast-` and controlled `safety-` rubric checks block immediately.)
 1b. **DECIDED (owner, 2026-08-16):** CI runner — **GitHub Actions primary** (org standard is Azure DevOps, but the owner will argue for GHA's simplicity: first-party scaffold support via `--cicd-runner github_actions`, repo+CI in one place, Google-documented GitHub WIF). **All verified ADO facts in this doc are retained as the fallback port** if the org mandates ADO — the pipeline steps are identical, only the YAML dialect and auth hop change.
 1c. **REVISED (owner, 2026-08-16, same day):** per-run token consumption **will be surfaced** in CI results and the UI (live during a run where possible). Mechanism — **BigQuery Agent Analytics plugin** on eval deployments (`scaffold enhance --bq-analytics`; plugin ships in pinned ADK; event rows carry `session_id`/`invocation_id`/`usage_metadata` token counts — source-verified). Attribution is clean because eval traffic runs as hardcoded user `eval-cli-user` with one session per case: per-run tokens = SUM over user+time-window (pollable live); per-case = GROUP BY session_id. **Refinement (owner, same day): CI carries zero token code** — CI is regression-gate only. The **UI backend computes tokens lazily at view time** from the manifest's time window, which works for on-demand runs (live counter while running) AND retroactively for CI runs opened in the UI. Fallback until BQ is enabled: Cloud Monitoring `token_count` time-window query (approximate; verified live with real data). Console dashboards remain the deep-link for everything else. Eval deployments: **standing scale-to-zero instances per agent**, updated by each merge deploy.
 2. Whether on-demand runs may target a branch/SHA other than `main` (useful for pre-merge "run heavy evals" button) — defer.

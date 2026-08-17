@@ -15,6 +15,23 @@
 >   (experimental) knows Agent Engine resource names — `generate --url` speaks the 4-route ADK HTTP
 >   surface only. Deploy one agent, try `eval submit --resource-name` AND `generate --url <endpoint>`;
 >   the winner is the CI execution step. `grade` and `tools/eval_gate.py` are unchanged either way.
+>
+> **REV 4 (2026-08-17, external review adopted — READ THIS OVER REV 3's SEQUENCE):**
+> - **Production sequence inverted: eval-then-deploy.** CI checks out the exact Git SHA, runs the
+>   agent FROM SOURCE inside the CI job (the §12-validated local path — `generate` spawning the local
+>   server), evaluates the complete suite, gates, and **deploys only on pass** (branch protection /
+>   pipeline gating makes it binding). The rev-3 spike result (`generate --url <runtime>/api`) is now
+>   the **Apex Backoffice on-demand mechanism**, not the CI mechanism.
+> - **Apex** (the internal UI's real name) resolves the deployed revision → its source SHA → loads the
+>   suite at THAT SHA (never mixed with main) → runs cloud-supported metrics → reports repo-local
+>   custom metrics as "not run" and the run as **partial**. CI is the authoritative complete-suite
+>   gate. **The credential-bearing Runner never executes arbitrary repository Python.**
+> - **Gate completeness rules added** (see §6): verify generated case IDs match the authored set;
+>   verify every selected metric executed; correlate cases by ID, never by result-list order;
+>   infrastructure errors reported distinct from quality failures.
+> - **Judged gating softened**: participates day one, promoted to blocking on baseline stability
+>   evidence (supersedes blocking-day-one). Red-team/safety coverage moves into Phase 0–1.
+> - New Phase 4 stretch: authoring supported eval cases in Apex → GitHub PR via CODEOWNERS.
 
 ---
 
@@ -101,9 +118,23 @@ repo/
 
 **Local:** `agents-cli playground` → edit → `agents-cli eval generate --dataset tests/eval/datasets/fast-smoke.json --output artifacts/traces/` → `agents-cli eval grade --traces artifacts/traces --config tests/eval/eval_config.fast.yaml` → `python tools/eval_gate.py artifacts/grade_results/ --thresholds tests/eval/eval_config.fast.yaml` → `eval analyze` / `eval compare` as needed → PR.
 
-**CI (rev 3 — Azure DevOps, on merge to main, path-filtered per agent):** install pinned packages → auth to GCP (WIF — Google-documented for ADO; or SA key secure file) → **`agents-cli deploy`** the merged agent to Agent Runtime (record `{agent, resource_name/revision, git_sha}` in the manifest) → loop datasets per tier using the blocking-spike winner: **path A** `eval submit --resource-name <revision> --dataset <d> --dest gs://<bucket>/…` → poll `eval results` | **path B** `eval generate --url <endpoint>` → `eval grade` → gate script (fast blocks; judged `continueOnError: true` initially) → publish results as pipeline artifact + `gsutil rsync` to `gs://<bucket>/results/<agent>/<git_sha>/<run_id>/` → write `run.json` manifest. No per-merge Runner image build.
+**CI (rev 4 — the authoritative gate, path-filtered per agent):** checkout exact SHA → install pinned
+packages + the agent's deps → auth to GCP (WIF) → per tier: `eval generate` (agent runs FROM SOURCE in
+the job via the local server path; `--session_service_uri memory://` if self-hosting the server) →
+`eval grade --config <tier>` → `tools/eval_gate.py` with completeness checks (§6) — fail on low score,
+errored case, missing case, or missing metric; infra errors distinct → publish artifacts +
+`gsutil rsync` to `gs://<bucket>/results/<agent>/<git_sha>/<run_id>/` + `run.json` manifest →
+**`agents-cli deploy` ONLY on pass** (record `{agent, resource_name/revision, git_sha}`) → branch
+protection/pipeline gating makes the gate binding. Custom `custom_function` metrics run here (CI
+already executes repo code). No per-merge Runner image build.
 
-**UI/on-demand (rev 3):** `POST /agents/{a}/runs {tier}` → Runner (thin orchestrator) pulls datasets + configs from GitHub Contents API @ main → resolves the agent's current deployed revision from the deploy manifests (runs are labeled with the revision's git SHA; a `main`-ahead-of-deployment mismatch is surfaced as a warning, not a 409) → executes the same spike-winner path as CI → gate → rsync results + manifest to the same GCS layout → UI polls `GET /runs/{id}`.
+**Apex on-demand (rev 4):** `POST /agents/{a}/runs {tier}` → Runner (thin orchestrator) resolves the
+agent's deployed revision from deploy manifests → resolves that deployment's git SHA → pulls datasets
++ configs from GitHub Contents API **at that SHA (never main-mixed)** → worker runs
+`eval generate --url <runtime>/api` (rev-3 spike-validated) → `eval grade` with **cloud-supported
+metrics only** — repo-local custom metrics reported as `not_run`, run marked **`partial`** → gate for
+status → rsync results + manifest to the same GCS layout → Apex polls `GET /runs/{id}`. The Runner
+never executes repository Python.
 
 ## 6. Gate Script Spec (`tools/eval_gate.py`) — the one custom component
 
@@ -113,7 +144,14 @@ thresholds:
   agent_turn_count: {min_mean: 1.0}
   custom_response_quality: {min_mean: 0.7, min_case: 0.5}
 ```
-Behavior: parse `EvaluationResult` JSON → per-metric mean + per-case scores → print table → exit 0 iff all thresholds met, exit 1 otherwise (exit 2 for parse/IO errors). Also emit `gate_summary.json` (machine-readable, uploaded with the manifest) and optional `--junit out.xml` (one testcase per metric×dataset) for ADO's Tests tab. ~120 lines; add unit tests with a fixture results JSON.
+Behavior: parse `EvaluationResult` JSON → per-metric mean + per-case scores → print table → exit 0 iff all thresholds met, exit 1 otherwise (exit 2 for infrastructure/parse/IO errors — **infrastructure failures must stay distinguishable from quality failures**). Also emit `gate_summary.json` (machine-readable, uploaded with the manifest) and optional `--junit out.xml` (one testcase per metric×dataset). Add unit tests with the fixture results JSON.
+
+**Completeness rules (rev 4 — non-optional):**
+1. Take the authored dataset as input and **verify generated/graded case IDs match the authored set** — fail on any missing case (closes L2's silent-drop).
+2. **Verify every selected metric actually executed** — a metric absent from results is a failure, not a skip.
+3. **Fail on any errored case** (`num_cases_error > 0` — closes L13's error-exclusion).
+4. **Correlate cases by `eval_case_id`, never by result-list order** (results carry `eval_case_index`; join through the metadata dataset to IDs).
+5. A missing or errored metric/case is NEVER a pass; dropped cases never disappear from completeness accounting.
 
 **Watch item (2026-08-15):** ADK 2.7.0 added native threshold grading + crash-fails-eval to ADK's *own* eval engine (`adk eval`/`AgentEvaluator`) — the escape-hatch path only; agents-cli `grade` scores via the Vertex SDK and is unaffected. Google is converging on gate semantics, so on every agents-cli version bump, check whether `grade` gained a threshold flag / score-based exit codes — the release that does deletes most of this script. Do NOT switch CI to `adk eval` to get it early: different dataset format (`.evalset.json`), unverified exit-code contract, and it would split scoring across two engines (violates the one-engine invariant).
 
@@ -124,7 +162,7 @@ Triggers/connection per architecture doc §4.2. Steps: `UsePythonVersion@0 (3.12
 ## 8. Runner Service Spec (FastAPI, Cloud Run)
 
 Endpoints: `GET /agents` · `GET /agents/{a}/instructions` (Contents API → app/agent.py raw + best-effort `instruction=` extraction + SHA) · `GET /agents/{a}/datasets` · `POST /agents/{a}/runs {tier: fast|judged|all}` → 202 `{run_id}` · `GET /runs/{run_id}` (includes lazily-computed `tokens` per L11) · `GET /runs?agent=…` (reads the per-agent `index.json`, not a GCS prefix scan — the Runner appends one line to `results/<agent>/index.json` on every run-write; storage decision: GCS stays the system of record for v1, Firestore/BQ-external-tables are additive upgrade paths per arch §15.4).
-Rules (rev 3): per-agent run lock; Cloud Run service identity for GCP; GitHub App token (contents:read) for GitHub; **no agent code in the image** — the worker targets the deployed Agent Runtime revision recorded by CI (E4 option B / `eval submit`); one small orchestrator image serves all agents; background execution via Cloud Tasks or asyncio worker; every result write includes `{agent, git_sha, deployed_revision, run_id, trigger, requested_by, criteria_snapshot: {adk: "2.6.3", agents_cli: "1.3.1", model, configs_hash}}`.
+Rules (rev 4): per-agent run lock; Cloud Run service identity for GCP; GitHub App token (contents:read) for GitHub; **no agent code in the image and NO execution of repository Python** — the worker targets the deployed Agent Runtime revision via `generate --url <runtime>/api` and runs cloud-supported metrics only (repo-local custom metrics → `not_run`, run → `partial`); datasets/configs loaded at the deployed revision's SHA, never main-mixed; one small orchestrator image serves all agents; background execution via Cloud Tasks or asyncio worker; every result write carries full lineage `{agent, source_sha, deployed_revision/runtime_identity, dataset_hash, config_hash, case+metric identities, model/toolchain/judge/metric versions, trigger, requested_by, run_id, completeness: complete|partial}`.
 
 ## 9. UI (three screens, nothing else)
 
@@ -137,8 +175,12 @@ No dashboards, no editing, no chat.
 
 | Phase | Build | Done when |
 |---|---|---|
-| 0 | Scaffold 1 agent **with `-d agent_runtime`**, split tier configs, write 2 fast + 1 judged dataset, gate script + tests; Vertex `.env` (project `repp-501700`) | local generate→grade→gate passes AND a forced-fail dataset exits 1 (🔶 first live-ADC task) |
-| 0.5 | **Rev-3 blocking spike:** `agents-cli deploy` the scaffold agent to Agent Runtime; attempt `eval submit --resource-name` + `eval results`, AND `eval generate --url <endpoint>`; record which works, its results-JSON shape, latency, and cost | one eval case scored end-to-end against the deployed revision; CI execution step chosen (path A or B) |
+| 0 — Developer loop | Scaffold 1 agent **with `-d agent_runtime`**; tier configs + example datasets for **fast, safety/red-team, judged, golden**; `tools/eval_tiers.py` + `eval_lint.py` + `eval_gate.py` (test-first vs fixtures, incl. rev-4 completeness rules); one-command local dev experience | local generate→grade→gate passes; forced-fail exits 1; lint rejects a golden fixture missing a reference; ~~rev-3 spike~~ ✅ already closed live (Spike D) |
+| 1 — Authoritative CI gate | GHA workflow: checkout SHA → pinned install → full suite from source → completeness-checked gate → publish raw+normalized results → **deploy only on pass**; branch protection/pipeline gating | a bad change is blocked BEFORE deploy; a good merge auto-deploys; results in GCS with full lineage |
+| 2 — Apex walking skeleton | Authenticated thin Runner: resolve deployed revision + its SHA → trigger/watch runs → score, rationale, errors, **completeness (partial/complete)**, lineage → CI + on-demand history → console links | full loop demonstrable: local → CI gate → deploy → Apex on-demand → history |
+| 3 — Hardening | Concurrency + run isolation; retention/authorization/sanitization; expanded live-validated profiles; quota controls; token accounting; stable result normalization + artifact correlation | two simultaneous runs serialize cleanly; tokens per run/case in Apex |
+| 4 — Authoring (stretch) | Create/edit supported native eval cases in Apex (prompt, rubric criteria, optional golden ref) bound to a base SHA, preserving unknown native fields → opens GitHub PR → CODEOWNERS review; no metric-config editing from Apex | a case authored in Apex lands on main through normal review |
+| Later | Baseline-relative gates · pairwise evaluation · managed Python sandbox (unlocks custom metrics in Apex) · simulated users/multi-turn generation · prompt optimization · trend + cost analytics | — |
 | 1 spikes | (a) grade with judge metrics live incl. `--region`; (b) `adk eval` credential-free sanity run (docs-confirmed 2026-08-15); (d) `--otel_to_cloud` spans visible incl. tokens **+ run_id→trace correlation design (mandatory — see review G1: trace artifact provably carries no tokens)**. ~~(c) thresholds key~~ ✅ closed offline; ~~(e) eval submit~~ ✅ closed via help/docs; ~~(f) ADO→GCP WIF~~ ✅ Google-documented end-to-end — now a Phase-2 config task | each remaining spike closes a 🔶 in this doc |
 | 2 | ADO pipeline | merge runs both tiers; fast failure blocks; results in ADO artifacts + GCS |
 | 3 | Runner Service | on-demand run for a SHA lands manifests in GCS; instructions endpoint returns file+SHA |

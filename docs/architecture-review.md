@@ -1,5 +1,14 @@
 # Architecture Review — Pre-Handoff Validation
 
+> **Postscript (rev 4, 2026-08-17):** an external review inverted the production sequence to
+> eval-then-deploy (CI evaluates the exact source SHA and deploys only on gate pass; Apex Backoffice
+> evaluates the deployed revision on demand), reworded the invariant to "one versioned suite, one
+> grading contract," softened judged gating to promote-on-baseline-evidence, added gate completeness
+> rules (case-ID matching, metric-executed verification, ID-based correlation, infra-vs-quality error
+> separation), and added the Runner-never-executes-repo-Python security constraint plus the Apex
+> partial-run concept. All docs updated; the audit below predates that revision and its rev-3 framing
+> should be read accordingly.
+
 **Reviewed:** `agent-eval-architecture.md` (rev 2), `build-spec.md`, `live-validation-runbook.md`
 **Date:** 2026-08-15
 **Purpose:** find everything a build agent would have to *guess* about, before we hand it the spec.

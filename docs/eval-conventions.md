@@ -12,7 +12,18 @@ configs/flags (verified live: `--metrics final_response_quality` worked).
 **A dataset file's `<tier>-` filename prefix binds it to exactly one grading profile** (its
 `eval_config.<tier>.yaml` — the metrics + thresholds applied at the `grade` step; `generate` itself is
 metric-blind). A tier = that grading profile **plus a case-authoring contract** (what the cases must
-contain for the profile's scores to mean anything — enforced by the lint). Cases never carry metrics; files do, via their prefix. The prefix→config
+contain for the profile's scores to mean anything — enforced by the lint).
+
+Rev-4 clarifications: a grading profile **may run multiple compatible metrics**. Golden references are
+**human-approved semantic targets, not exact-string expectations** — exact matching is reserved for
+strict deterministic contracts (JSON fields, calculations, identifiers, mandated disclosures), which
+belong in `fast-` checks. Reference-based metrics run only when every case carries the required
+reference; reference-free LLM judges need no golden answer. The prefix resolves through a **centrally
+versioned mapping** — prefix → grading profile ID → metric/version/input/execution requirements
+(`tools/eval_tiers.py`) — so tier meanings cannot drift across agents. Custom `custom_function`
+metrics are **trusted code**: they execute on the laptop and in CI (which already run repo code), but
+never in the credential-bearing Runner — Apex runs report them as `not_run` (run = `partial`) until a
+sandbox exists. Cases never carry metrics; files do, via their prefix. The prefix→config
 mapping lives in ONE place — `tools/eval_tiers.py` — imported by the CI loop, the Runner worker, and
 the lint. Adding a tier = one config template + one mapping line. Nothing else changes.
 
@@ -43,7 +54,7 @@ agents/<agent>/tests/eval/
 | Tier prefix | Metric suite (premade unless noted) | Reference req'd? | Cost | CI posture |
 |---|---|---|---|---|
 | `fast-` | local `custom_function` metrics only (turn counts, tool-call assertions, deterministic checks) | no | free, seconds | **blocking**, every merge |
-| `judged-` | `final_response_quality` (✅ live) + the scaffold's local `custom_response_quality` as a second opinion. *(`instruction_following`, `tool_use_quality` join when the backend supports them — L12)* | no | judge calls | **blocking** (owner decision) — generous thresholds, tighten after baseline month |
+| `judged-` | `final_response_quality` (✅ live) + the scaffold's local `custom_response_quality` as a second opinion. *(`instruction_following`, `tool_use_quality` join when the backend supports them — L12)* | no | judge calls | **participates day one; promoted to blocking on baseline stability evidence** (rev 4 — conservative thresholds, fixed canaries, rollback policy) |
 | `golden-` | `final_response_match` (✅ live — semantic match to golden reference) | **YES — every case, linted** | judge calls | blocking |
 | `grounded-` *(dormant — L12)* | `grounding`, `hallucination` (response vs tool outputs — cases must exercise tools) | no | judge calls | blocking when live |
 | `safety-` **(ACTIVE — owner decision 2026-08-16)** | **local custom red-team judge** (your rubric: refuse/deflect correctly on attack prompts — same `custom_function` pattern as `response_quality.py`); Google's premade `safety` metric *augments* it when the backend supports it (L12) | no | judge calls | blocking |
@@ -70,9 +81,12 @@ turns a subtle data bug into a lint error at PR time.
 
 ## 4. Keeping N agents consistent (scalability)
 
-- **Templates:** repo-root `eval-templates/eval_config.<tier>.yaml` are the canonical suites. A new
-  agent copies the tiers it needs. The lint flags an agent config that drifts from its template unless
-  it carries an explicit `# custom-suite: <reason>` header — divergence is allowed, but visible.
+- **Templates + registered mapping:** repo-root `eval-templates/eval_config.<tier>.yaml` are the
+  canonical suites, and `tools/eval_tiers.py` is the versioned prefix→profile-ID→requirements
+  registry. A new agent copies the tiers it needs; **adding an agent requires no platform code changes
+  when it follows the registered conventions**. The lint flags an agent config that drifts from its
+  template unless it carries an explicit `# custom-suite: <reason>` header — divergence is allowed,
+  but visible.
 - **Lint (`tools/eval_lint.py`, runs in PR checks, no credentials):**
   - every dataset parses as `EvaluationDataset` (schema in build-spec E6/fixtures)
   - every dataset's prefix has a config in that agent + mapping entry

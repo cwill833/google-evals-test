@@ -18,12 +18,23 @@ GitHub→GCP auth via Workload Identity Federation (`google-github-actions/auth`
 6. `fixtures/` — REAL captured artifacts: `grade_results_fixture.json` (write the gate parser
    test-first against this), `traces_fixture.json` (dataset/trace shape).
 
+> **REV 4 (2026-08-17) — the production sequence in this brief's phases is authoritative and
+> SUPERSEDES any deploy-then-eval flow mentioned in older sections of the other docs:**
+> **local dev → CI evaluates the exact source SHA (agent runs FROM SOURCE in the CI job) → gate →
+> deploy only on pass → Apex Backoffice evaluates the deployed revision on demand.**
+> `generate --url <runtime>/api` is the APEX mechanism; source-local execution is the CI mechanism.
+> The Runner never executes repository Python (Apex runs cloud-supported metrics only; repo-local
+> custom metrics are reported `not_run` and the run `partial`). CI is the authoritative
+> complete-suite gate, made binding via branch protection / pipeline gating.
+
 ## Non-negotiable verified constraints (violating these = bugs)
 - Pins: `google-adk==2.6.3`, `google-agents-cli==1.3.1`, model `gemini-3.7-flash`, region
   `us-central1`. Vertex-only auth (`GOOGLE_GENAI_USE_VERTEXAI=true`); NO AI Studio keys anywhere.
 - `eval grade` NEVER fails on low scores → `tools/eval_gate.py` is the only gate (build-spec §6).
-- `generate` exits 0 on partial success and silently drops failed cases → the gate must compare
-  graded-case-count against the dataset's case count (L2).
+- `generate` exits 0 on partial success and silently drops failed cases → the gate enforces the rev-4
+  completeness rules (build-spec §6): case IDs must match the authored set, every selected metric must
+  have executed, any errored/missing case fails, correlation by `eval_case_id` never list order, and
+  infrastructure errors stay distinct from quality failures.
 - Eval path against deployed agents: `generate --url <runtime>/api` — the `/api` suffix is required;
   `eval submit` is shelved (non-functional, L7).
 - Eval server sessions: start any locally-hosted `adk api_server` with `--session_service_uri
@@ -32,50 +43,62 @@ GitHub→GCP auth via Workload Identity Federation (`google-github-actions/auth`
   `tools/eval_lint.py` (G6; Google's own SDK crashes on violations).
 - `generate` must run from the agent's project root (walks up for `agents-cli-manifest.yaml`).
 
-## Phases (walking skeleton — each phase ends with something demonstrably working E2E)
+## Phases (rev 4 — walking skeleton; each phase ends with something demonstrably working E2E)
 
-### Phase 0 — Repo bootstrap + the one custom component
-Build: monorepo per build-spec §3 in the target repo; port the validated agent from `validation/
-test-agent/` (already pinned + configured) as `agents/demo-agent/`; `docs/` moves in as repo docs;
-tier configs `fast` + `judged` (+ `golden` template) per eval-conventions; `tools/eval_tiers.py`,
-`tools/eval_lint.py`, `tools/eval_gate.py` — gate written TEST-FIRST against
-`fixtures/grade_results_fixture.json`; GitHub Actions PR check running lint + gate unit tests
-(no GCP creds needed).
+### Phase 0 — Developer loop
+Build: monorepo per build-spec §3; port the validated agent from `validation/test-agent/` as
+`agents/demo-agent/`; `docs/` moves in as repo docs; tier configs + example datasets for **fast,
+safety/red-team, judged, golden** per eval-conventions; `tools/eval_tiers.py` (the versioned
+prefix→profile registry), `tools/eval_lint.py`, `tools/eval_gate.py` — gate written TEST-FIRST
+against `fixtures/grade_results_fixture.json` and implementing the rev-4 completeness rules
+(build-spec §6); one-command local dev experience; GitHub Actions PR check running lint + gate unit
+tests (no GCP creds needed).
 **Done when:** local `generate → grade → gate` passes on demo-agent; a forced-fail dataset makes the
 gate exit 1 (baselines: healthy 5.0 / corrupted 3.67); lint rejects a golden-tier fixture missing a
-reference.
+reference; a missing-case fixture and a missing-metric fixture both fail the gate.
 
-### Phase 1 — CI on merge (GitHub Actions → GCP)
-Build: WIF setup (`google-github-actions/auth`); merge-to-main workflow: pinned installs → deploy
-standing scale-to-zero eval instance (`agents-cli deploy -d agent_runtime --min-instances 0`) →
-per-tier `generate --url <runtime>/api` → `grade --config <tier>` → gate (fast blocks; judged blocks
-with generous thresholds) → `gsutil rsync` results to
-`gs://repp-501700-agent-evals/results/<agent>/<sha>/<run_id>/` + append `index.json` + `run.json`
-manifest (with `deployed_revision`, `criteria_snapshot`, timestamps).
-**Done when:** a merge produces a complete run in GCS; a deliberately broken agent fails at generate
-(loudly); the forced-fail dataset blocks the merge.
+### Phase 1 — Authoritative CI gate (GitHub Actions → GCP)
+Build: WIF setup (`google-github-actions/auth`); workflow that: checks out the exact SHA → pinned
+installs → runs the agent FROM SOURCE per tier (`generate` local path; `memory://` sessions) →
+`grade --config <tier>` → completeness-checked gate (fast + controlled safety block; judged
+report-only pending baselines) → publish raw + normalized results to
+`gs://repp-501700-agent-evals/results/<agent>/<sha>/<run_id>/` + `index.json` + `run.json` with full
+lineage → **`agents-cli deploy -d agent_runtime --min-instances 0` ONLY on pass** → branch
+protection / pipeline gating makes the gate binding.
+**Done when:** a bad change is blocked BEFORE any deploy; a good merge auto-deploys; a deliberately
+broken agent fails loudly at generate; results + lineage land in GCS.
 
-### Phase 2 — Walking-skeleton Runner + UI (the owner's explicit ask)
-Build: minimal FastAPI Runner on Cloud Run (§8 endpoints: agents / datasets / POST runs / GET run /
-GET runs — thin orchestrator, NO agent code baked in) + a deliberately simple single-page UI: agent
-list → trigger run (tier picker) → live status poll → run history from `index.json` → run detail
-(gate summary, per-case scores, judge rationale, token display, Agent Platform console deep link).
-Tokens: lazily computed at view time (L11) — Monitoring window-query fallback until Phase 3's BQ.
-**Done when:** the full loop is demonstrable: local run → CI run on merge → on-demand run from the
-UI → all three visible in run history → console deep link shows the deployed agent's dashboards.
+### Phase 2 — Apex walking skeleton
+Build: authenticated thin FastAPI Runner on Cloud Run (§8 — NO agent code, NO repo-Python execution)
++ a deliberately simple UI: agent list → trigger run → live status poll → run history (CI +
+on-demand interleaved from `index.json`) → run detail (gate summary, per-case scores, judge
+rationale, **completeness complete/partial**, lineage, token display, console deep link). Worker:
+resolve deployed revision → its source SHA → suite at that SHA → `generate --url <runtime>/api` →
+cloud-supported metrics only (`not_run` for repo-local metrics → run `partial`). Tokens lazily
+computed at view time (L11; Monitoring window-query fallback until Phase 3's BQ).
+**Done when:** the full loop is demonstrable: local run → CI gate → deploy → Apex on-demand run →
+history shows all of it → console deep link works.
 
-### Phase 3 — Hardening + full taxonomy
-Build: enable `--bq-analytics` on eval deployments; switch token display to the BQ query (live counter
-for in-flight runs; per-case GROUP BY session_id); per-agent run lease (GCS lease file honored by BOTH
-CI and Runner — prevents concurrent runs against one standing instance AND deploys mid-run); remaining
-tier configs (grounded / safety / multiturn) per eval-conventions; instructions screen (GitHub
-Contents API); CODEOWNERS paths; `eval-metrics.snapshot` + registry-diff check.
-**Done when:** two simultaneous run requests serialize cleanly; tokens show per-case; a PR adding a
-new premade metric to the snapshot shows the intended diff.
+### Phase 3 — Hardening
+Build: `--bq-analytics` on eval deployments → token display switches to the BQ query (live counter
+in-flight; per-case GROUP BY session_id); per-agent run lease (GCS lease honored by BOTH CI and
+Runner — no concurrent runs against one instance, no deploys mid-run); retention / authorization /
+sanitization; expanded live-validated profiles (grounded / multiturn when Google enables);
+project-level quota controls; instructions screen; CODEOWNERS paths; `eval-metrics.snapshot` +
+registry-diff check; stable result normalization + artifact correlation.
+**Done when:** two simultaneous run requests serialize cleanly; tokens show per-case; a snapshot diff
+PR surfaces a newly enabled premade metric.
 
-### Phase 4 — Future lanes (backlog, not now)
-Baseline-relative gating (`eval compare`), synthesized multiturn datasets, `eval submit` re-test on
-newer agents-cli, conformance lane, `eval optimize`.
+### Phase 4 — Authoring (stretch)
+Build: create/edit supported native eval cases in Apex — prompt, rubric criteria, optional golden
+reference — bound to a base source SHA, preserving native fields the editor doesn't understand →
+opens a GitHub PR → normal CODEOWNERS review. No metric-config editing from Apex in this phase.
+**Done when:** a case authored in Apex reaches `main` through review and runs in the next CI gate.
+
+### Later (backlog)
+Baseline-relative gates · pairwise evaluation · managed Python sandbox (unlocks custom metrics in
+Apex) · simulated users / multi-turn generation · `eval submit` re-test · conformance lane ·
+`eval optimize` · trend + cost analytics.
 
 ## Shared-machine etiquette (OTHER AGENTS ARE BUILDING OTHER PROJECTS ON THIS MACHINE)
 - **Port block: this project owns 8600–8699. Never bind outside it.** Assignments: Runner FastAPI dev
