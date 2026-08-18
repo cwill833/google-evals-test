@@ -136,6 +136,38 @@ metrics only** — repo-local custom metrics reported as `not_run`, run marked *
 status → rsync results + manifest to the same GCS layout → Apex polls `GET /runs/{id}`. The Runner
 never executes repository Python.
 
+## 5b. Results Store — GCS layout and file schemas (consolidated, rev 4)
+
+**One bucket is the system of record. CI and the Apex Runner write the IDENTICAL layout — that is why
+one reader serves the CI view, the Apex run detail, and the interleaved history. Append-only: runs are
+never mutated or deleted by the pipeline.**
+
+```
+gs://<project>-agent-evals/
+  results/<agent>/index.json                    ← one JSON line per run — powers the history LIST
+  results/<agent>/<source-version>/<run-id>/
+    run.json                                    ← manifest: exactly what was evaluated
+    gate_summary.json                           ← the verdict the CI log + Apex run-detail read
+    grade_results/results_<ts>.json             ← Google's scores + judge rationale per case
+    grade_results/results_<ts>.html             ← Google's human-readable report (free; link in UI)
+    traces/traces_<ts>.json                     ← transcript per case (responses + tool calls)
+```
+
+Per-file schema status:
+
+| File | Schema | Status |
+|---|---|---|
+| `grade_results/*.json` | Google's `EvaluationResult` dump | **captured live** — fixture at `docs/fixtures/grade_results_fixture.json`; gate parser written test-first against it |
+| `traces/*.json` | `EvaluationDataset` with populated `responses`/`agent_data` | **captured live** — `docs/fixtures/traces_fixture.json` |
+| `run.json` | ours | **specified**: `{agent, source_version, deployed_revision/runtime_identity (Apex runs), dataset_hash, config_hash, case_ids, metric_ids, model + toolchain + judge versions, trigger: ci|on_demand, requested_by, run_id, started_at, finished_at, status: running|passed|failed|error, completeness: complete|partial}` — finalized in Phase 0 with the gate |
+| `gate_summary.json` | ours | **specified**: per-metric `{mean, floor_worst_case, bar, pass}`, per-case failures with judge rationale refs, completeness counts (authored vs generated vs graded vs errored), exit code + reason class (quality|infrastructure) |
+| `index.json` | ours | one line per run: `{run_id, source_version, trigger, tier(s), status, completeness, started_at}` — appended by the writer after the run directory is complete |
+
+Rules the writers obey: the run directory is written fully BEFORE the index line is appended (readers
+never see a listed-but-incomplete run); CI runs and Apex runs differ only in `trigger`,
+`deployed_revision` presence, and possible `partial` completeness; nothing else about the layout may
+diverge between surfaces.
+
 ## 6. Gate Script Spec (`tools/eval_gate.py`) — the one custom component
 
 Input: a grade_results dir (finds newest `results_*.json`) + thresholds. Thresholds live in a `thresholds:` block appended to each eval_config YAML (✅ VERIFIED 2026-08-15: grade tolerates the unknown key — config parsed, metric loaded, run proceeded to client init; the models are Pydantic `extra="allow"`. No sidecar needed):
