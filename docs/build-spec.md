@@ -155,6 +155,46 @@ Behavior: parse `EvaluationResult` JSON → per-metric mean + per-case scores �
 
 **Watch item (2026-08-15):** ADK 2.7.0 added native threshold grading + crash-fails-eval to ADK's *own* eval engine (`adk eval`/`AgentEvaluator`) — the escape-hatch path only; agents-cli `grade` scores via the Vertex SDK and is unaffected. Google is converging on gate semantics, so on every agents-cli version bump, check whether `grade` gained a threshold flag / score-based exit codes — the release that does deletes most of this script. Do NOT switch CI to `adk eval` to get it early: different dataset format (`.evalset.json`), unverified exit-code contract, and it would split scoring across two engines (violates the one-engine invariant).
 
+## 6a. How blocking actually works — the exit-code seam (read this if "grade succeeded, so how does it block?" is confusing)
+
+Google's grading step ALWAYS succeeds — `grade` exits 0 even on terrible scores (E1, verified). It is
+not the last step. The gate is one more step, ours, whose success is defined differently:
+
+```
+Step 1  generate       → exit 0   (agent ran, transcript written)
+Step 2  grade          → exit 0   (Google scored it — always succeeds)
+Step 3  eval_gate.py   → exit 0 ONLY if scores clear the bars     ← everything hinges here
+```
+
+The gate's core is nothing more than:
+
+```python
+results = read("results.json")            # Google's scores, written by step 2
+if results.mean < min_mean or any(case < min_case) or completeness_violated:
+    print(explanation_with_judge_rationale)
+    sys.exit(1)          # ← THIS LINE IS THE ENTIRE BLOCKING MECHANISM
+sys.exit(0)              # (exit 2 for infrastructure errors — distinct from quality failures)
+```
+
+CI runners are deliberately dumb: they know nothing about evals — they watch each step's exit code,
+and any non-zero exit fails the job. Failed job → required status check goes red → GitHub disables
+the merge button (block #1); failed job → the deploy job that `needs:` it never starts (block #2).
+Wiring details: §7a.
+
+Two different meanings of "successful" — keep them separate:
+
+| | "Did the machinery work?" | "Did the agent measure up?" |
+|---|---|---|
+| Who answers | Google's `grade` (step 2) | **our gate** (step 3) |
+| Exit code reflects | scoring completed | scores cleared the bars |
+| Bad agent, working machinery | exit 0 | **exit 1 → blocked** |
+
+Mental model: **`eval_gate.py` is pytest for eval scores.** Running pytest "succeeds" as a program even
+when tests fail — but it exits 1 on failed assertions, and that is what turns CI red. Our gate asserts
+`score >= bar` (plus the §6 completeness rules) instead of `x == y`. It exists as a component only
+because Google's tool has no opinion about thresholds; if a future agents-cli grows a `--fail-below`
+flag (watch item, §6), most of this script evaporates.
+
 ## 7. Azure Pipeline Skeleton
 
 Triggers/connection per architecture doc §4.2. Steps: `UsePythonVersion@0 (3.12)` → `pip install google-adk==2.6.3 google-agents-cli==1.3.1` → `DownloadSecureFile` SA key + `export GOOGLE_APPLICATION_CREDENTIALS` → bash loop over `tests/eval/datasets/fast-*.json` (generate→grade→gate) → same for `judged-*` with `continueOnError: true` → `PublishTestResults@2` on gate JUnit → `PublishPipelineArtifact` grade_results → `gsutil -m rsync -r` to GCS → Docker build/push runner image. Matrix or per-agent path-filtered pipelines as agents grow.
