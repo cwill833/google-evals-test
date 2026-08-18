@@ -159,6 +159,50 @@ Behavior: parse `EvaluationResult` JSON → per-metric mean + per-case scores �
 
 Triggers/connection per architecture doc §4.2. Steps: `UsePythonVersion@0 (3.12)` → `pip install google-adk==2.6.3 google-agents-cli==1.3.1` → `DownloadSecureFile` SA key + `export GOOGLE_APPLICATION_CREDENTIALS` → bash loop over `tests/eval/datasets/fast-*.json` (generate→grade→gate) → same for `judged-*` with `continueOnError: true` → `PublishTestResults@2` on gate JUnit → `PublishPipelineArtifact` grade_results → `gsutil -m rsync -r` to GCS → Docker build/push runner image. Matrix or per-agent path-filtered pipelines as agents grow.
 
+## 7a. GitHub Actions Skeleton (rev 4.1 — the primary CI shape; §7's ADO skeleton is the fallback port)
+
+One workflow, two triggers, two block points. The only custom component in the chain is the gate's
+exit code — everything else is native CI machinery:
+
+```yaml
+# .github/workflows/quality-gate.yml
+on:
+  pull_request:                     # BLOCK #1: merge — via required status check
+  push: { branches: [main] }        # BLOCK #2: deploy — via job dependency
+
+jobs:
+  checks:                           # PR + main: lint & gate unit tests, credential-free
+    steps: [checkout, install pinned toolchain, run eval_lint, run gate unit tests]
+  evals:
+    needs: checks
+    steps:
+      - checkout                    # exact code version under review
+      - google-github-actions/auth  # WIF, keyless
+      - install pinned toolchain + agent deps
+      - per tier (PR: fast only · main: full suite):
+          agents-cli eval generate …   # agent runs FROM SOURCE in this job
+          agents-cli eval grade --config eval_config.<tier>.yaml
+          python tools/eval_gate.py …  # exits 1 on quality fail / 2 on infra → job dies here
+      - publish artifacts + rsync results to GCS + write run.json/index.json
+  deploy:
+    needs: evals                    # ← deploy-block: never starts if evals failed
+    if: github.ref == 'refs/heads/main'
+    steps: [agents-cli deploy -d agent_runtime --min-instances 0, record revision in manifest]
+```
+
+Enforcement wiring (config, not code):
+- **Branch protection / ruleset on `main`**: require the `evals` check → GitHub disables the merge
+  button on red. This is the merge-block; it is server-side and cannot be bypassed by contributors.
+- **`needs: evals`** is the deploy-block: a failed gate step fails the job, and GHA never starts a
+  dependent job. No policy engine, no custom blocker.
+- Optional hardening: a GitHub `production` Environment on the deploy job (approvals, wait timers).
+- Failure UX: gate emits JUnit (`--junit`) → per-metric red annotations on the PR; `gate_summary.json`
+  ships with artifacts for Apex.
+
+Phase-1 acceptance = demonstrate both blocks live: a deliberately broken agent greys out the merge
+button; a good merge auto-deploys. (ADO equivalents if the org requires: branch policies + stage
+dependencies — see §7.)
+
 ## 8. Runner Service Spec (FastAPI, Cloud Run)
 
 Endpoints: `GET /agents` · `GET /agents/{a}/instructions` (Contents API → app/agent.py raw + best-effort `instruction=` extraction + SHA) · `GET /agents/{a}/datasets` · `POST /agents/{a}/runs {tier: fast|judged|all}` → 202 `{run_id}` · `GET /runs/{run_id}` (includes lazily-computed `tokens` per L11) · `GET /runs?agent=…` (reads the per-agent `index.json`, not a GCS prefix scan — the Runner appends one line to `results/<agent>/index.json` on every run-write; storage decision: GCS stays the system of record for v1, Firestore/BQ-external-tables are additive upgrade paths per arch §15.4).
