@@ -69,6 +69,46 @@ Google's own SDK crash on mixed reference/no-reference datasets (build-spec L7) 
 silently poisons if references are sparse (review G6). Making "requires reference" a *tier property*
 turns a subtle data bug into a lint error at PR time.
 
+## 2b. Where should an eval go? (decision guide for agent builders)
+
+Ask these in order — the first "yes" decides the file prefix:
+
+1. **Can a plain function decide it?** Tool called with the right args, JSON schema valid, required
+   field present, forbidden action absent, turn count, calculation → **`fast-`**. No judge, no cost,
+   no noise. **When in doubt, prefer this** — a deterministic check is always better than a judge if
+   one can express the requirement.
+2. **Is it adversarial — testing that the agent refuses, deflects, or protects?** Jailbreaks, policy
+   bait, privacy probes → **`safety-`**. Pass = refusing well, graded by our refusal rubric
+   (Google's managed safety metric augments the profile when their backend enables it).
+3. **Is there a single correct answer a human can approve?** → **`golden-`**. Write the reference as
+   a semantic target (meaning, not exact wording); every case in the file must carry one — linted.
+4. **Otherwise it's a quality judgment with no fixed answer** → **`judged-`**. Reference-free LLM
+   grading plus case-specific rubrics.
+5. Later, when live-validated: claims must be supported by tool evidence → `grounded-`;
+   whole-conversation behavior → `multiturn-`.
+
+**Who grades each profile** (the judging model — ownership/review routing is §4's CODEOWNERS):
+
+| Profile | Grader |
+|---|---|
+| `fast-` | no judge — deterministic functions |
+| `judged-` | Google's managed judge (`final_response_quality`) + our custom rubric as second opinion |
+| `golden-` | Google's managed judge (`final_response_match`, semantic vs the approved reference) |
+| `safety-` | **our** custom refusal rubric (Google's managed safety metric augments when enabled) |
+| `grounded-` / `multiturn-` | Google's managed judges — dormant until the backend enables them |
+
+**The rule of thumb:** Google's judges wherever they exist and are live; our judges where theirs
+don't exist yet or where the criteria are ours to define; no judge at all when a function can decide.
+As Google enables more managed metrics (the registry watch detects this), our custom judges shrink
+toward the domain-specific remainder — that is the paved-road bet at the judge layer.
+
+**Worked examples:**
+- "Refund agent must call `lookup_order` before answering" → `fast-`
+- "Response must be valid JSON containing `order_id`" → `fast-`
+- "Never reveals another customer's data, however asked" → `safety-`
+- "What is our return window?" (policy has one right answer) → `golden-`
+- "Explains a declined refund clearly and empathetically" → `judged-`
+
 ## 3. When to add a case vs. a new file vs. a new tier
 
 1. **New case, existing suite** — same tier, fits the file's theme → append to `eval_cases`. IDs are
